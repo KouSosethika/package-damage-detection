@@ -2,6 +2,7 @@ import streamlit as st
 import tensorflow as tf
 import numpy as np
 from PIL import Image
+import os
 
 # Page settings
 st.set_page_config(page_title="Package Damage Detection", layout="centered")
@@ -9,11 +10,17 @@ st.set_page_config(page_title="Package Damage Detection", layout="centered")
 st.title("📦 Package Damage Detection")
 st.write("Upload an image of a package to check whether it is **Damaged** or **Intact**.")
 
+# ===== Path handling (IMPORTANT) =====
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+MODEL_PATH = os.path.join(BASE_DIR, "keras_model.h5")
+LABELS_PATH = os.path.join(BASE_DIR, "labels.txt")
+
 # Load model
-model = tf.keras.models.load_model("keras_model.h5", compile=False)
+model = tf.keras.models.load_model(MODEL_PATH, compile=False)
 
 # Load labels
-with open("labels.txt", "r") as f:
+with open(LABELS_PATH, "r") as f:
     class_names = f.readlines()
 
 # Image uploader
@@ -25,7 +32,7 @@ if uploaded_file is not None:
 
     # Preprocess image
     image = image.resize((224, 224))
-    image_array = np.asarray(image)
+    image_array = np.asarray(image, dtype=np.float32)
     image_array = image_array / 255.0
     image_array = np.expand_dims(image_array, axis=0)
 
