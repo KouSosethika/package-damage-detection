@@ -13,11 +13,11 @@ st.write("Upload an image of a package to check whether it is **Damaged** or **I
 # ===== Path handling (IMPORTANT) =====
 BASE_DIR = os.path.dirname(os.path.abspath("app.py"))
 
-MODEL_PATH = os.path.join(BASE_DIR, "model")
+MODEL_PATH = os.path.join(BASE_DIR, "saved_model.pb")
 LABELS_PATH = os.path.join(BASE_DIR, "labels.txt")
 
 # Load model
-model = tf.keras.models.load_model(os.path.join(BASE_DIR, "model"))
+model = tf.keras.models.load_model(MODEL_PATH)
 
 # Load labels
 with open(LABELS_PATH, "r") as f:
