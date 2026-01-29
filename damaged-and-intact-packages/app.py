@@ -3,62 +3,108 @@ import tensorflow as tf
 import numpy as np
 from PIL import Image
 import os
+from io import BytesIO
 
-# Page settings
-st.set_page_config(page_title="Package Damage Detection", layout="centered")
+# ========================
+# Page configuration
+# ========================
+st.set_page_config(
+    page_title="📦 Package Damage Detection",
+    page_icon="📦",
+    layout="centered",
+    initial_sidebar_state="expanded"
+)
 
 st.title("📦 Package Damage Detection")
-st.write("Upload an image of a package to check whether it is **Damaged** or **Intact**.")
+st.markdown(
+    """
+    Upload an image of a package and let the AI predict whether it is **Damaged** or **Intact**.
+    """
+)
 
-# ===== Path handling =====
+# ========================
+# Paths
+# ========================
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-
-# IMPORTANT: MODEL_PATH must be the folder containing saved_model.pb + variables/
-MODEL_PATH = os.path.join(BASE_DIR, "model.savedmodel")  # <-- folder name 'model.savedmodel'
+MODEL_FOLDER = os.path.join(BASE_DIR, "model.savedmodel")  # Folder containing saved_model.pb + variables/
 LABELS_PATH = os.path.join(BASE_DIR, "labels.txt")
 
-# ===== Load model safely =====
-if not os.path.exists(MODEL_PATH):
-    st.error(f"Model folder not found at {MODEL_PATH}. Upload the full SavedModel folder.")
+# ========================
+# Load model
+# ========================
+model = None
+if not os.path.exists(MODEL_FOLDER):
+    st.error(f"❌ Model folder not found at {MODEL_FOLDER}. Please upload the full SavedModel folder.")
 else:
     try:
-        model = tf.keras.models.load_model(MODEL_PATH)
+        with st.spinner("⏳ Loading model..."):
+            model = tf.keras.models.load_model(MODEL_FOLDER)
         st.success("✅ Model loaded successfully!")
     except Exception as e:
-        st.error(f"Failed to load model: {e}")
+        st.error(f"❌ Failed to load model: {e}")
 
-# ===== Load labels =====
+# ========================
+# Load labels
+# ========================
+class_names = []
 if not os.path.exists(LABELS_PATH):
-    st.error(f"Labels file not found at {LABELS_PATH}.")
+    st.error(f"❌ Labels file not found at {LABELS_PATH}.")
 else:
     with open(LABELS_PATH, "r") as f:
         class_names = [line.strip() for line in f.readlines()]
 
-# ===== Image uploader =====
-uploaded_file = st.file_uploader("Choose an image...", type=["jpg", "jpeg", "png"])
+# ========================
+# Upload image
+# ========================
+uploaded_file = st.file_uploader(
+    "Choose an image of the package...",
+    type=["jpg", "jpeg", "png"]
+)
 
-if uploaded_file is not None and os.path.exists(MODEL_PATH):
-    image = Image.open(uploaded_file).convert("RGB")
-    st.image(image, caption="Uploaded Image", use_container_width=True)
+if uploaded_file is not None and model is not None and class_names:
+    try:
+        # Read image
+        image_bytes = uploaded_file.read()
+        image = Image.open(BytesIO(image_bytes)).convert("RGB")
 
-    # Preprocess image
-    image = image.resize((224, 224))
-    image_array = np.asarray(image, dtype=np.float32)
-    image_array = image_array / 255.0
-    image_array = np.expand_dims(image_array, axis=0)
+        # Display uploaded image
+        st.image(image, caption="📸 Uploaded Image", use_column_width=True)
 
-    # Prediction
-    prediction = model.predict(image_array)
-    index = np.argmax(prediction)
-    class_name = class_names[index]
-    confidence_score = prediction[0][index]
+        # ========================
+        # Preprocess image
+        # ========================
+        input_size = (224, 224)  # Teachable Machine default
+        image_resized = image.resize(input_size)
+        image_array = np.array(image_resized, dtype=np.float32) / 255.0
+        image_array = np.expand_dims(image_array, axis=0)
 
-    # Output
-    st.subheader("🔍 Prediction Result")
-    st.write(f"**Class:** {class_name}")
-    st.write(f"**Confidence:** {confidence_score * 100:.2f}%")
+        # ========================
+        # Make prediction
+        # ========================
+        prediction = model.predict(image_array)
+        index = np.argmax(prediction)
+        class_name = class_names[index]
+        confidence_score = prediction[0][index]
 
-    if "damaged" in class_name.lower():
-        st.error("⚠️ The package is DAMAGED")
-    else:
-        st.success("✅ The package is INTACT")
+        # ========================
+        # Display result nicely
+        # ========================
+        st.markdown("---")
+        st.subheader("🔍 Prediction Result")
+
+        col1, col2 = st.columns([1, 2])
+        with col1:
+            if "damaged" in class_name.lower():
+                st.error("⚠️ DAMAGED")
+            else:
+                st.success("✅ INTACT")
+
+        with col2:
+            st.write(f"**Class:** {class_name}")
+            st.write(f"**Confidence:** {confidence_score * 100:.2f}%")
+
+        st.markdown("---")
+        st.info("💡 Tip: Make sure the image shows the package clearly for best results.")
+
+    except Exception as e:
+        st.error(f"❌ Failed to process uploaded image: {e}")
