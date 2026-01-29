@@ -1,2 +1,0 @@
-0 Damaged
-1 Intact
