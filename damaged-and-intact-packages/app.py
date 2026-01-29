@@ -11,7 +11,7 @@ st.title("📦 Package Damage Detection")
 st.write("Upload an image of a package to check whether it is **Damaged** or **Intact**.")
 
 # ===== Path handling (IMPORTANT) =====
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+BASE_DIR = os.path.dirname(os.path.abspath("app.py"))
 
 MODEL_PATH = os.path.join(BASE_DIR, "keras_model.h5")
 LABELS_PATH = os.path.join(BASE_DIR, "labels.txt")
