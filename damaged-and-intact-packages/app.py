@@ -3,9 +3,7 @@ import tensorflow as tf
 import numpy as np
 from PIL import Image
 import os
-import av
-import cv2
-from streamlit_webrtc import webrtc_streamer, VideoProcessorBase
+from io import BytesIO
 
 # ========================
 # Page configuration
@@ -14,11 +12,15 @@ st.set_page_config(
     page_title="📦 Package Damage Detection",
     page_icon="📦",
     layout="centered",
+    initial_sidebar_state="expanded"
 )
 
 st.title("📦 Package Damage Detection")
 st.markdown(
-    "Detect whether a package is **Damaged** or **Intact** using image upload or **live webcam**."
+    """
+    Upload an image **or use your camera** to let the AI predict whether a package is  
+    **Damaged** or **Intact**.
+    """
 )
 
 # ========================
@@ -29,109 +31,113 @@ MODEL_FOLDER = os.path.join(BASE_DIR, "model.savedmodel")
 LABELS_PATH = os.path.join(BASE_DIR, "labels.txt")
 
 # ========================
-# Load model (ONCE)
+# Load model
 # ========================
 @st.cache_resource
 def load_model():
     return tf.keras.models.load_model(MODEL_FOLDER)
 
-model = load_model()
+model = None
+if not os.path.exists(MODEL_FOLDER):
+    st.error("❌ Model folder not found. Please upload the full SavedModel folder.")
+else:
+    try:
+        with st.spinner("⏳ Loading model..."):
+            model = load_model()
+        st.success("✅ Model loaded successfully!")
+    except Exception as e:
+        st.error(f"❌ Failed to load model: {e}")
 
 # ========================
 # Load labels
 # ========================
-with open(LABELS_PATH, "r") as f:
-    class_names = [line.strip() for line in f.readlines()]
+class_names = []
+if not os.path.exists(LABELS_PATH):
+    st.error("❌ Labels file not found.")
+else:
+    with open(LABELS_PATH, "r") as f:
+        class_names = [line.strip() for line in f.readlines()]
 
 # ========================
-# Prediction function
+# Image input section
 # ========================
-def predict_image(image: Image.Image):
-    image = image.resize((224, 224))
-    img_array = np.array(image, dtype=np.float32) / 255.0
-    img_array = np.expand_dims(img_array, axis=0)
+st.markdown("## 📸 Choose Input Method")
 
-    preds = model.predict(img_array, verbose=0)
-    index = np.argmax(preds)
-    return class_names[index], float(preds[0][index])
-
-# ========================
-# Sidebar selector
-# ========================
-mode = st.sidebar.radio(
-    "Select Input Mode",
-    ["📁 Image Upload", "📹 Live Webcam"]
+uploaded_file = st.file_uploader(
+    "📁 Upload an image",
+    type=["jpg", "jpeg", "png"]
 )
 
-# ========================
-# IMAGE UPLOAD MODE
-# ========================
-if mode == "📁 Image Upload":
-    uploaded_file = st.file_uploader(
-        "Upload a package image",
-        type=["jpg", "jpeg", "png"]
-    )
+st.markdown("### OR")
 
-    if uploaded_file:
-        image = Image.open(uploaded_file).convert("RGB")
-        st.image(image, caption="📸 Uploaded Image", use_column_width=True)
+camera_image = st.camera_input("📷 Use your camera")
 
-        label, confidence = predict_image(image)
+# Decide image source
+image_source = None
+source_label = ""
 
-        st.markdown("### 🔍 Prediction Result")
-        if "damaged" in label.lower():
-            st.error(f"⚠️ DAMAGED — {confidence*100:.2f}%")
-        else:
-            st.success(f"✅ INTACT — {confidence*100:.2f}%")
+if uploaded_file is not None:
+    image_source = uploaded_file
+    source_label = "Uploaded Image"
+elif camera_image is not None:
+    image_source = camera_image
+    source_label = "Camera Capture"
 
 # ========================
-# LIVE WEBCAM MODE
+# Prediction
 # ========================
-else:
-    st.markdown("### 📹 Live Webcam Detection")
-    st.info("Prediction updates every few frames for better stability.")
+if image_source is not None and model is not None and class_names:
+    try:
+        # Read image
+        image_bytes = image_source.read()
+        image = Image.open(BytesIO(image_bytes)).convert("RGB")
 
-    class VideoProcessor(VideoProcessorBase):
-        def __init__(self):
-            self.frame_count = 0
-            self.label = "Detecting..."
-            self.confidence = 0.0
+        # Display image
+        st.image(image, caption=f"📸 {source_label}", use_column_width=True)
 
-        def recv(self, frame):
-            self.frame_count += 1
-            img = frame.to_ndarray(format="rgb24")
+        # ========================
+        # Preprocess image
+        # ========================
+        image_resized = image.resize((224, 224))
+        image_array = np.array(image_resized, dtype=np.float32) / 255.0
+        image_array = np.expand_dims(image_array, axis=0)
 
-            # Predict every 10 frames (IMPORTANT)
-            if self.frame_count % 10 == 0:
-                pil_img = Image.fromarray(img)
-                self.label, self.confidence = predict_image(pil_img)
+        # ========================
+        # Predict
+        # ========================
+        with st.spinner("🔍 Analyzing image..."):
+            prediction = model.predict(image_array, verbose=0)
 
-            # Draw overlay
-            color = (255, 0, 0) if "damaged" in self.label.lower() else (0, 255, 0)
-            text = f"{self.label} ({self.confidence*100:.1f}%)"
+        index = np.argmax(prediction)
+        class_name = class_names[index]
+        confidence_score = prediction[0][index]
 
-            cv2.putText(
-                img,
-                text,
-                (20, 40),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                1,
-                color,
-                2,
-                cv2.LINE_AA,
-            )
+        # ========================
+        # Display result
+        # ========================
+        st.markdown("---")
+        st.subheader("🔍 Prediction Result")
 
-            return av.VideoFrame.from_ndarray(img, format="rgb24")
+        col1, col2 = st.columns([1, 2])
 
-    webrtc_streamer(
-        key="package-damage-live",
-        video_processor_factory=VideoProcessor,
-        media_stream_constraints={"video": True, "audio": False},
-        async_processing=True,
-    )
+        with col1:
+            if "damaged" in class_name.lower():
+                st.error("⚠️ DAMAGED")
+            else:
+                st.success("✅ INTACT")
+
+        with col2:
+            st.write(f"**Class:** {class_name}")
+            st.write(f"**Confidence:** {confidence_score * 100:.2f}%")
+
+        st.markdown("---")
+        st.info("💡 Tip: Use clear, well-lit images for best results.")
+
+    except Exception as e:
+        st.error(f"❌ Failed to process image: {e}")
 
 # ========================
 # Footer
 # ========================
 st.markdown("---")
-st.caption("📦 AI-powered Package Damage Detection • Live Webcam Enabled")
+st.caption("📦 AI-powered Package Damage Detection")
