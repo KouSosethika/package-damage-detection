@@ -18,7 +18,8 @@ st.set_page_config(
 st.title("📦 Package Damage Detection")
 st.markdown(
     """
-    Upload an image of a package and let the AI predict whether it is **Damaged** or **Intact**.
+    Upload an image **or use your camera** to let the AI predict whether a package is  
+    **Damaged** or **Intact**.
     """
 )
 
@@ -26,7 +27,7 @@ st.markdown(
 # Paths
 # ========================
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-MODEL_FOLDER = os.path.join(BASE_DIR, "model.savedmodel")  # Folder containing saved_model.pb + variables/
+MODEL_FOLDER = os.path.join(BASE_DIR, "model.savedmodel")  # SavedModel folder
 LABELS_PATH = os.path.join(BASE_DIR, "labels.txt")
 
 # ========================
@@ -34,7 +35,7 @@ LABELS_PATH = os.path.join(BASE_DIR, "labels.txt")
 # ========================
 model = None
 if not os.path.exists(MODEL_FOLDER):
-    st.error(f"❌ Model folder not found at {MODEL_FOLDER}. Please upload the full SavedModel folder.")
+    st.error("❌ Model folder not found. Please upload the full SavedModel folder.")
 else:
     try:
         with st.spinner("⏳ Loading model..."):
@@ -48,27 +49,47 @@ else:
 # ========================
 class_names = []
 if not os.path.exists(LABELS_PATH):
-    st.error(f"❌ Labels file not found at {LABELS_PATH}.")
+    st.error("❌ Labels file not found.")
 else:
     with open(LABELS_PATH, "r") as f:
         class_names = [line.strip() for line in f.readlines()]
 
 # ========================
-# Upload image
+# Image input section
 # ========================
+st.markdown("## 📸 Choose Image Source")
+
 uploaded_file = st.file_uploader(
-    "Choose an image of the package...",
+    "📁 Upload an image",
     type=["jpg", "jpeg", "png"]
 )
 
-if uploaded_file is not None and model is not None and class_names:
+st.markdown("### OR")
+
+camera_image = st.camera_input("📷 Take a photo using your camera")
+
+# Decide which image to use
+image_source = None
+source_label = ""
+
+if uploaded_file is not None:
+    image_source = uploaded_file
+    source_label = "Uploaded Image"
+elif camera_image is not None:
+    image_source = camera_image
+    source_label = "Camera Capture"
+
+# ========================
+# Prediction
+# ========================
+if image_source is not None and model is not None and class_names:
     try:
         # Read image
-        image_bytes = uploaded_file.read()
+        image_bytes = image_source.read()
         image = Image.open(BytesIO(image_bytes)).convert("RGB")
 
-        # Display uploaded image
-        st.image(image, caption="📸 Uploaded Image", use_column_width=True)
+        # Show image
+        st.image(image, caption=f"📸 {source_label}", use_column_width=True)
 
         # ========================
         # Preprocess image
@@ -79,20 +100,23 @@ if uploaded_file is not None and model is not None and class_names:
         image_array = np.expand_dims(image_array, axis=0)
 
         # ========================
-        # Make prediction
+        # Predict
         # ========================
-        prediction = model.predict(image_array)
+        with st.spinner("🔍 Analyzing image..."):
+            prediction = model.predict(image_array)
+
         index = np.argmax(prediction)
         class_name = class_names[index]
         confidence_score = prediction[0][index]
 
         # ========================
-        # Display result nicely
+        # Display result
         # ========================
         st.markdown("---")
-        st.subheader("🔍 Prediction Result")
+        st.subheader("🧠 Prediction Result")
 
         col1, col2 = st.columns([1, 2])
+
         with col1:
             if "damaged" in class_name.lower():
                 st.error("⚠️ DAMAGED")
@@ -104,7 +128,15 @@ if uploaded_file is not None and model is not None and class_names:
             st.write(f"**Confidence:** {confidence_score * 100:.2f}%")
 
         st.markdown("---")
-        st.info("💡 Tip: Make sure the image shows the package clearly for best results.")
+        st.info("💡 Tip: Clear, well-lit images give the best prediction results.")
 
     except Exception as e:
-        st.error(f"❌ Failed to process uploaded image: {e}")
+        st.error(f"❌ Failed to process image: {e}")
+
+# ========================
+# Footer
+# ========================
+st.markdown(
+    "<center>📦 AI-powered Package Damage Detection</center>",
+    unsafe_allow_html=True
+)
