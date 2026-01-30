@@ -39,7 +39,7 @@ else:
     try:
         with st.spinner("⏳ Loading model..."):
             model = tf.keras.models.load_model(MODEL_FOLDER)
-        st.success("✅ Model loaded successfully!")
+        st.info("✅ Model is ready! Upload an image to predict if the package is Damaged or Intact.")
     except Exception as e:
         st.error(f"❌ Failed to load model: {e}")
 
@@ -108,3 +108,4 @@ if uploaded_file is not None and model is not None and class_names:
 
     except Exception as e:
         st.error(f"❌ Failed to process uploaded image: {e}")
+
