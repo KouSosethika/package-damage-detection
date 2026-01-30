@@ -4,5 +4,7 @@ numpy==1.24.3
 pillow==10.2.0
 h5py==3.9.0
 protobuf==3.20.3
+streamlit-webrtc
 av
 opencv-python-headless
+
