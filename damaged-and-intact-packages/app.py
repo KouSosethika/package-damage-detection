@@ -3,140 +3,126 @@ import tensorflow as tf
 import numpy as np
 from PIL import Image
 import os
-from io import BytesIO
+from streamlit_webrtc import webrtc_streamer, VideoProcessorBase
+import av
 
 # ========================
-# Page configuration
+# Page config
 # ========================
 st.set_page_config(
     page_title="📦 Package Damage Detection",
     page_icon="📦",
-    layout="centered",
-    initial_sidebar_state="expanded"
+    layout="centered"
 )
 
-st.title("📦 Package Damage Detection")
+st.title("📦 Package Damage Detection (Live Camera)")
 st.markdown(
-    """
-    Upload an image **or use your camera** to let the AI predict whether a package is  
-    **Damaged** or **Intact**.
-    """
+    "Detect whether a package is **Damaged** or **Intact** using **live webcam** or image upload."
 )
 
 # ========================
 # Paths
 # ========================
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-MODEL_FOLDER = os.path.join(BASE_DIR, "model.savedmodel")  # SavedModel folder
+MODEL_FOLDER = os.path.join(BASE_DIR, "model.savedmodel")
 LABELS_PATH = os.path.join(BASE_DIR, "labels.txt")
 
 # ========================
 # Load model
 # ========================
-model = None
-if not os.path.exists(MODEL_FOLDER):
-    st.error("❌ Model folder not found. Please upload the full SavedModel folder.")
-else:
-    try:
-        with st.spinner("⏳ Loading model..."):
-            model = tf.keras.models.load_model(MODEL_FOLDER)
-        st.success("✅ Model loaded successfully!")
-    except Exception as e:
-        st.error(f"❌ Failed to load model: {e}")
+@st.cache_resource
+def load_model():
+    return tf.keras.models.load_model(MODEL_FOLDER)
+
+model = load_model()
 
 # ========================
 # Load labels
 # ========================
-class_names = []
-if not os.path.exists(LABELS_PATH):
-    st.error("❌ Labels file not found.")
-else:
-    with open(LABELS_PATH, "r") as f:
-        class_names = [line.strip() for line in f.readlines()]
+with open(LABELS_PATH, "r") as f:
+    class_names = [line.strip() for line in f.readlines()]
 
 # ========================
-# Image input section
+# Prediction function
 # ========================
-st.markdown("## 📸 Choose Image Source")
+def predict_image(image):
+    image = image.resize((224, 224))
+    image_array = np.array(image, dtype=np.float32) / 255.0
+    image_array = np.expand_dims(image_array, axis=0)
 
-uploaded_file = st.file_uploader(
-    "📁 Upload an image",
-    type=["jpg", "jpeg", "png"]
+    prediction = model.predict(image_array, verbose=0)
+    index = np.argmax(prediction)
+    return class_names[index], prediction[0][index]
+
+# ========================
+# Sidebar mode selector
+# ========================
+mode = st.sidebar.radio(
+    "Choose Input Mode",
+    ["📁 Upload Image", "📹 Live Camera"]
 )
 
-st.markdown("### OR")
+# ========================
+# IMAGE UPLOAD MODE
+# ========================
+if mode == "📁 Upload Image":
+    uploaded_file = st.file_uploader(
+        "Upload a package image",
+        type=["jpg", "jpeg", "png"]
+    )
 
-camera_image = st.camera_input("📷 Take a photo using your camera")
+    if uploaded_file:
+        image = Image.open(uploaded_file).convert("RGB")
+        st.image(image, caption="📸 Uploaded Image", use_column_width=True)
 
-# Decide which image to use
-image_source = None
-source_label = ""
+        label, confidence = predict_image(image)
 
-if uploaded_file is not None:
-    image_source = uploaded_file
-    source_label = "Uploaded Image"
-elif camera_image is not None:
-    image_source = camera_image
-    source_label = "Camera Capture"
+        st.markdown("### 🔍 Prediction")
+        if "damaged" in label.lower():
+            st.error(f"⚠️ DAMAGED ({confidence*100:.2f}%)")
+        else:
+            st.success(f"✅ INTACT ({confidence*100:.2f}%)")
 
 # ========================
-# Prediction
+# LIVE CAMERA MODE
 # ========================
-if image_source is not None and model is not None and class_names:
-    try:
-        # Read image
-        image_bytes = image_source.read()
-        image = Image.open(BytesIO(image_bytes)).convert("RGB")
+else:
+    st.markdown("### 📹 Live Webcam Detection")
+    st.info("Point the camera at a package. Prediction updates in real time.")
 
-        # Show image
-        st.image(image, caption=f"📸 {source_label}", use_column_width=True)
+    class VideoProcessor(VideoProcessorBase):
+        def recv(self, frame):
+            img = frame.to_ndarray(format="rgb24")
+            pil_img = Image.fromarray(img)
 
-        # ========================
-        # Preprocess image
-        # ========================
-        input_size = (224, 224)  # Teachable Machine default
-        image_resized = image.resize(input_size)
-        image_array = np.array(image_resized, dtype=np.float32) / 255.0
-        image_array = np.expand_dims(image_array, axis=0)
+            label, confidence = predict_image(pil_img)
 
-        # ========================
-        # Predict
-        # ========================
-        with st.spinner("🔍 Analyzing image..."):
-            prediction = model.predict(image_array)
+            # Draw result text
+            import cv2
+            color = (255, 0, 0) if "damaged" in label.lower() else (0, 255, 0)
+            text = f"{label} ({confidence*100:.1f}%)"
 
-        index = np.argmax(prediction)
-        class_name = class_names[index]
-        confidence_score = prediction[0][index]
+            cv2.putText(
+                img,
+                text,
+                (20, 40),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                1,
+                color,
+                2,
+                cv2.LINE_AA,
+            )
 
-        # ========================
-        # Display result
-        # ========================
-        st.markdown("---")
-        st.subheader("🧠 Prediction Result")
+            return av.VideoFrame.from_ndarray(img, format="rgb24")
 
-        col1, col2 = st.columns([1, 2])
-
-        with col1:
-            if "damaged" in class_name.lower():
-                st.error("⚠️ DAMAGED")
-            else:
-                st.success("✅ INTACT")
-
-        with col2:
-            st.write(f"**Class:** {class_name}")
-            st.write(f"**Confidence:** {confidence_score * 100:.2f}%")
-
-        st.markdown("---")
-        st.info("💡 Tip: Clear, well-lit images give the best prediction results.")
-
-    except Exception as e:
-        st.error(f"❌ Failed to process image: {e}")
+    webrtc_streamer(
+        key="live-camera",
+        video_processor_factory=VideoProcessor,
+        media_stream_constraints={"video": True, "audio": False},
+    )
 
 # ========================
 # Footer
 # ========================
-st.markdown(
-    "<center>📦 AI-powered Package Damage Detection</center>",
-    unsafe_allow_html=True
-)
+st.markdown("---")
+st.caption("📦 AI-powered Package Damage Detection using Live Webcam")
