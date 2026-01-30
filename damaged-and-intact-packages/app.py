@@ -3,21 +3,22 @@ import tensorflow as tf
 import numpy as np
 from PIL import Image
 import os
-from streamlit_webrtc import webrtc_streamer, VideoProcessorBase
 import av
+import cv2
+from streamlit_webrtc import webrtc_streamer, VideoProcessorBase
 
 # ========================
-# Page config
+# Page configuration
 # ========================
 st.set_page_config(
     page_title="📦 Package Damage Detection",
     page_icon="📦",
-    layout="centered"
+    layout="centered",
 )
 
-st.title("📦 Package Damage Detection (Live Camera)")
+st.title("📦 Package Damage Detection")
 st.markdown(
-    "Detect whether a package is **Damaged** or **Intact** using **live webcam** or image upload."
+    "Detect whether a package is **Damaged** or **Intact** using image upload or **live webcam**."
 )
 
 # ========================
@@ -28,7 +29,7 @@ MODEL_FOLDER = os.path.join(BASE_DIR, "model.savedmodel")
 LABELS_PATH = os.path.join(BASE_DIR, "labels.txt")
 
 # ========================
-# Load model
+# Load model (ONCE)
 # ========================
 @st.cache_resource
 def load_model():
@@ -45,27 +46,27 @@ with open(LABELS_PATH, "r") as f:
 # ========================
 # Prediction function
 # ========================
-def predict_image(image):
+def predict_image(image: Image.Image):
     image = image.resize((224, 224))
-    image_array = np.array(image, dtype=np.float32) / 255.0
-    image_array = np.expand_dims(image_array, axis=0)
+    img_array = np.array(image, dtype=np.float32) / 255.0
+    img_array = np.expand_dims(img_array, axis=0)
 
-    prediction = model.predict(image_array, verbose=0)
-    index = np.argmax(prediction)
-    return class_names[index], prediction[0][index]
+    preds = model.predict(img_array, verbose=0)
+    index = np.argmax(preds)
+    return class_names[index], float(preds[0][index])
 
 # ========================
-# Sidebar mode selector
+# Sidebar selector
 # ========================
 mode = st.sidebar.radio(
-    "Choose Input Mode",
-    ["📁 Upload Image", "📹 Live Camera"]
+    "Select Input Mode",
+    ["📁 Image Upload", "📹 Live Webcam"]
 )
 
 # ========================
 # IMAGE UPLOAD MODE
 # ========================
-if mode == "📁 Upload Image":
+if mode == "📁 Image Upload":
     uploaded_file = st.file_uploader(
         "Upload a package image",
         type=["jpg", "jpeg", "png"]
@@ -77,30 +78,37 @@ if mode == "📁 Upload Image":
 
         label, confidence = predict_image(image)
 
-        st.markdown("### 🔍 Prediction")
+        st.markdown("### 🔍 Prediction Result")
         if "damaged" in label.lower():
-            st.error(f"⚠️ DAMAGED ({confidence*100:.2f}%)")
+            st.error(f"⚠️ DAMAGED — {confidence*100:.2f}%")
         else:
-            st.success(f"✅ INTACT ({confidence*100:.2f}%)")
+            st.success(f"✅ INTACT — {confidence*100:.2f}%")
 
 # ========================
-# LIVE CAMERA MODE
+# LIVE WEBCAM MODE
 # ========================
 else:
     st.markdown("### 📹 Live Webcam Detection")
-    st.info("Point the camera at a package. Prediction updates in real time.")
+    st.info("Prediction updates every few frames for better stability.")
 
     class VideoProcessor(VideoProcessorBase):
+        def __init__(self):
+            self.frame_count = 0
+            self.label = "Detecting..."
+            self.confidence = 0.0
+
         def recv(self, frame):
+            self.frame_count += 1
             img = frame.to_ndarray(format="rgb24")
-            pil_img = Image.fromarray(img)
 
-            label, confidence = predict_image(pil_img)
+            # Predict every 10 frames (IMPORTANT)
+            if self.frame_count % 10 == 0:
+                pil_img = Image.fromarray(img)
+                self.label, self.confidence = predict_image(pil_img)
 
-            # Draw result text
-            import cv2
-            color = (255, 0, 0) if "damaged" in label.lower() else (0, 255, 0)
-            text = f"{label} ({confidence*100:.1f}%)"
+            # Draw overlay
+            color = (255, 0, 0) if "damaged" in self.label.lower() else (0, 255, 0)
+            text = f"{self.label} ({self.confidence*100:.1f}%)"
 
             cv2.putText(
                 img,
@@ -116,13 +124,14 @@ else:
             return av.VideoFrame.from_ndarray(img, format="rgb24")
 
     webrtc_streamer(
-        key="live-camera",
+        key="package-damage-live",
         video_processor_factory=VideoProcessor,
         media_stream_constraints={"video": True, "audio": False},
+        async_processing=True,
     )
 
 # ========================
 # Footer
 # ========================
 st.markdown("---")
-st.caption("📦 AI-powered Package Damage Detection using Live Webcam")
+st.caption("📦 AI-powered Package Damage Detection • Live Webcam Enabled")
