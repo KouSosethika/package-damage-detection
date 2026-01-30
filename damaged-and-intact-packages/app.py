@@ -29,6 +29,19 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 MODEL_FOLDER = os.path.join(BASE_DIR, "model.savedmodel")  # Folder containing saved_model.pb + variables/
 LABELS_PATH = os.path.join(BASE_DIR, "labels.txt")
 
+# ========================
+# Load model
+# ========================
+model = None
+if not os.path.exists(MODEL_FOLDER):
+    st.error(f"❌ Model folder not found at {MODEL_FOLDER}. Please upload the full SavedModel folder.")
+else:
+    try:
+        with st.spinner("⏳ Loading model..."):
+            model = tf.keras.models.load_model(MODEL_FOLDER)
+        st.success("✅ Model loaded successfully!")
+    except Exception as e:
+        st.error(f"❌ Failed to load model: {e}")
 
 # ========================
 # Load labels
